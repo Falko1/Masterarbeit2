@@ -48,6 +48,7 @@ class SelfAttention(nn.Module):
         # ignore the padded values (we pad from l -> l_max) by setting them to -infty
         masked_C = C.masked_fill(mask == 0, float('-inf'))
 
+        # Softmax with scaling instead of max
         C_tilde = torch.softmax(masked_C / (self.d_int ** (1 / 2)), dim=3)
 
         y_bar = torch.einsum("nhll,nlhd->nlhd", [C_tilde, values]).reshape(
@@ -84,11 +85,11 @@ class TransformerBlock(nn.Module):
     def forward(self, Z, mask):
         after_rho = self.attention(Z, mask)
 
-        # Add residual connection
+        # Dropout, residual connection then layer norm
         y = self.norm1(self.dropout(after_rho) + Z)
         # Feedforward
         forward = self.feed_forward(y)
-        # Add residual connection
+        # Dropout, residual connection then layer norm
         Z_new = self.norm2(self.dropout(forward) + y)
         return Z_new
 
@@ -118,6 +119,7 @@ class Encoder(nn.Module):
         )
 
     def forward(self, X, mask):
+        # Dropout before we start
         Z = self.dropout(X)
         for layer in self.layers:
             Z = layer(Z, mask)
@@ -150,16 +152,11 @@ class Transformer(nn.Module):
             dropout
         )
 
-        # self.pred = nn.Linear(d_model, 2)
         self.pred = nn.Linear(d_model * l_max, 1)
 
     def forward(self, x, mask):
         encoder_output = self.encoder(x, mask)
-        # clf_output = encoder_output[:, 0, :]
-        clf_output = encoder_output.reshape(encoder_output.shape[0], encoder_output.shape[1] * encoder_output.shape[2])
-        # for crossentropy
+        clf_output = encoder_output.reshape(encoder_output.shape[0],
+                                            encoder_output.shape[1] * encoder_output.shape[2])
         out = self.pred(clf_output)
-
-        # for mse
-        # out = torch.softmax(self.pred(clf_output), dim=1)
         return out

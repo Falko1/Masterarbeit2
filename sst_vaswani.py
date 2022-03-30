@@ -1,4 +1,3 @@
-import time
 import numpy as np
 import spacy
 import torch
@@ -9,6 +8,7 @@ from torch import nn, optim
 from torchinfo import torchinfo
 
 
+# Evaluates the model on the given data
 def evaluate(model, labels_np, data_np, mask_np, eval_batch_size):
     model.eval()
     with torch.no_grad():
@@ -23,7 +23,8 @@ def evaluate(model, labels_np, data_np, mask_np, eval_batch_size):
             mask = torch.from_numpy(mask_batch).to(device)
             final_out = model(data, mask)
 
-            plug_in = (np.sign(final_out.reshape(final_out.shape[0]).cpu().detach().numpy() - 0.5) + 1) / 2
+            plug_in = (np.sign(final_out.reshape(final_out.shape[0]).cpu().detach().numpy()
+                               - 0.5) + 1) / 2
             exact_labels = labels[:, 0].cpu().detach().numpy().round(decimals=0)
             diff = diff + np.sum(np.absolute((plug_in - exact_labels)))
 
@@ -36,7 +37,8 @@ def evaluate(model, labels_np, data_np, mask_np, eval_batch_size):
         mask = torch.from_numpy(mask_batch).to(device)
         final_out = model(data, mask)
 
-        plug_in = (np.sign(final_out.reshape(final_out.shape[0]).cpu().detach().numpy() - 0.5) + 1) / 2
+        plug_in = (np.sign(final_out.reshape(final_out.shape[0]).cpu().detach().numpy()
+                           - 0.5) + 1) / 2
         exact_labels = labels[:, 0].cpu().detach().numpy().round(decimals=0)
         diff = diff + np.sum(np.absolute((plug_in - exact_labels)))
         acc = 1 - diff / len(labels_np)
@@ -55,9 +57,8 @@ if __name__ == "__main__":
     d_ff = d_model
     h = 2
     l_max = 56
-    dropout = 0.0  # 0.1
-    learning_rate = 0.00003  # 0.001  # maximal lr reached is  learning_rate /sqrt(warmup_period)
-    # minimal lr: 3.95 * 10^-9, maximal lr: 1.58 * 10^-5
+    dropout = 0.1
+    learning_rate = 0.00003
     warmup_period = 1200
     eval_ratio = 100
     eval_batch_size = 500
@@ -74,8 +75,6 @@ if __name__ == "__main__":
     print(torchinfo.summary(model))
 
     criterion = nn.MSELoss(reduction='mean')
-    # criterion = nn.CrossEntropyLoss(reduction='mean')
-    # optimizer = optim.SGD(model.parameters(), lr=learning_rate)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, betas=(0.9, 0.98), eps=1e-09)
     lambda1 = lambda epoch: np.minimum((epoch + 1) ** (-0.5), (epoch + 1) * warmup_period ** (-1.5))
 
@@ -84,25 +83,21 @@ if __name__ == "__main__":
     losses = []
     accuracies = []
 
-    labels_train, data_train, mask_train = fetch_data_vaswani(l_max, d_model, h, nlp, label_smoothing,
-                                                              easy=False, split='train',
-                                                              random_state=None)
-    labels_dev, data_dev, mask_dev = fetch_data_vaswani(l_max, d_model, h, nlp, label_smoothing,
-                                                        easy=False, split='validation', random_state=None)
-    batch_size = 800
+    labels_train, data_train, mask_train = fetch_data_vaswani(l_max, d_model, h, nlp,
+                                                              easy=False, split='train')
+    labels_dev, data_dev, mask_dev = fetch_data_vaswani(l_max, d_model, h, nlp,
+                                                        easy=False, split='validation')
+
+    batch_size = 700
 
     indices = np.arange(len(labels_train))
     for epoch in range(epochs):
         epoch_loss = 0
         np.random.shuffle(indices)
-        # t0 = time.time()
         for i in range(len(labels_train) // batch_size):
             labels_train_batch = labels_train[indices[batch_size * i:batch_size * (i + 1)], :]
             data_train_batch = data_train[indices[batch_size * i:batch_size * (i + 1)], :, :]
             mask_train_batch = mask_train[indices[batch_size * i:batch_size * (i + 1)], :, :, :]
-            # labels_train_batch = labels_train[indices[:batch_size], :]
-            # data_train_batch = data_train[indices[:batch_size], :, :]
-            # mask_train_batch = mask_train[indices[:batch_size], :, :, :]
 
             labels = torch.from_numpy(labels_train_batch).to(device).float()
             data = torch.from_numpy(data_train_batch).to(device).float()
@@ -113,14 +108,8 @@ if __name__ == "__main__":
             loss.backward()
             optimizer.step()
             epoch_loss = epoch_loss + loss.item()
-        # t1 = time.time()
-        # print("Time epoch: " + str(t1 - t0))
         epoch_loss = epoch_loss / (len(labels_train) // batch_size)
-        # print(epoch_loss)
         losses.append(epoch_loss)
-
-        # if epoch_loss < error:
-        ##   break
 
         lr_scheduler.step()
 
@@ -131,9 +120,8 @@ if __name__ == "__main__":
             accuracies.append(dev_acc)
             print("Accuracy on dev set: " + str(dev_acc))
             print(
-                "Accuracy on train set: " + str(evaluate(model, labels_train, data_train, mask_train, eval_batch_size)))
-            #print(torch.max(out))
-            #print(torch.min(out))
+                "Accuracy on train set: " + str(evaluate(model, labels_train, data_train,
+                                                         mask_train, eval_batch_size)))
 
     fig1 = plt.figure()
     ax1 = fig1.add_subplot()
@@ -156,7 +144,7 @@ if __name__ == "__main__":
     ax2.set_ylabel('accuracy')
     plt.show()
 
-    labels_test, data_test, mask_test = fetch_data_vaswani(l_max, d_model, h, nlp, label_smoothing,
-                                                           easy=False, split='test',
-                                                           random_state=None)
-    print("Accuracy on test set: " + str(evaluate(model, labels_test, data_test, mask_test, eval_batch_size)))
+    labels_test, data_test, mask_test = fetch_data_vaswani(l_max, d_model, h, nlp,
+                                                           easy=False, split='test')
+    print("Accuracy on test set: " + str(evaluate(model, labels_test, data_test,
+                                                  mask_test, eval_batch_size)))

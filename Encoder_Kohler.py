@@ -50,9 +50,9 @@ class SelfAttention(nn.Module):
         # ignore the padded values (we pad from l -> l_max) by setting them to -infty
         masked_C = C.masked_fill(mask == 0, float('-inf'))
 
+        C_tilde = torch.zeros(C.shape).to(torch.device("cuda" \
+                                                           if torch.cuda.is_available() else "cpu"))
         # Compute indices where row-wise maximum is attained
-
-        C_tilde = torch.zeros(C.shape).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
         dummy_index_1, dummy_index_2, dummy_index_3 = np.indices(masked_C.argmax(axis=3).shape)
         # Define C_tilde by setting (in each row) all but the largest entry to zero
         C_tilde[dummy_index_1, dummy_index_2, dummy_index_3, torch.argmax(masked_C, dim=3)] = \
@@ -66,7 +66,6 @@ class SelfAttention(nn.Module):
         # out after matrix multiply: (n, l, h, d_v), then
         # we reshape and flatten the last two dimensions.
 
-        # TODO: Remove this?
         after_rho = self.fc_out(y_bar)
         # Linear layer doesn't modify the shape, final shape will be
         # (n, l_max, d_model)
@@ -75,7 +74,7 @@ class SelfAttention(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, h, d_k, d_ff):
+    def __init__(self, d_model, h, d_k, d_ff, dropout):
         super(TransformerBlock, self).__init__()
         self.attention = SelfAttention(d_model, h, d_k)
 
@@ -86,15 +85,17 @@ class TransformerBlock(nn.Module):
             nn.Linear(d_ff, d_model),
         )
 
+        self.dropout = nn.Dropout(dropout)
+
     def forward(self, Z, mask):
         after_rho = self.attention(Z, mask)
 
-        # Add residual connection
-        y = after_rho + Z
+        # Dropout then residual connection
+        y = self.dropout(after_rho) + Z
         # Feedforward
         forward = self.feed_forward(y)
-        # Add residual connection
-        Z_new = forward + y
+        # Dropout then residual connection
+        Z_new = forward + self.dropout(y)
         return Z_new
 
 
@@ -106,22 +107,27 @@ class Encoder(nn.Module):
             h,
             d_ff,
             d_k,
+            dropout
     ):
         super(Encoder, self).__init__()
         self.d_model = d_model
+        self.dropout = nn.Dropout(dropout)
         self.layers = nn.ModuleList(
             [
                 TransformerBlock(
                     d_model,
                     h,
                     d_k,
-                    d_ff
+                    d_ff,
+                    dropout
                 )
                 for _ in range(N)
             ]
         )
 
     def forward(self, Z, mask):
+        # Dropout before we start
+        Z = self.dropout(Z)
         for layer in self.layers:
             Z = layer(Z, mask)
         return Z
@@ -135,7 +141,8 @@ class Transformer_Kohler(nn.Module):
             d_k,
             d_ff,
             h,
-            l_max
+            l_max,
+            dropout
     ):
         super(Transformer_Kohler, self).__init__()
 
@@ -151,8 +158,10 @@ class Transformer_Kohler(nn.Module):
             N,
             h,
             d_ff,
-            d_k
+            d_k,
+            dropout
         )
+        # Formula for number of parameters from thesis.
         # print((2 * d_k + d_model / h) * d_model * N * h +
         #      (d_model * d_model + 2 * d_ff * d_model + d_ff + d_model) * N + d_model * l_max + 1)
         self.pred = nn.Linear(d_model * l_max, 1)
